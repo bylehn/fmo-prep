@@ -62,18 +62,20 @@ def prep(config: Path) -> None:
     fragit_dir = output_dir / "fragit"
     fragit_dir.mkdir(exist_ok=True)
 
-    # We need the central fragment ID, but it's only known after FragIt runs.
-    # Use placeholder=0 for first render; fragit resolves it via centralfragment=0
-    # which tells FragIt to auto-detect (or we look it up post-run).
+    # First pass: run FragIt with centralfragment=0 to generate the .inp and
+    # learn the fragment names. Central fragment only matters for mp2_level runs
+    # (it sets which fragment gets the NLAYER=2 active region).
     ini_path = render_config(cfg.fragit, central_fragment_id=0, output_path=fragit_dir / "fragit.ini")
     raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
     click.echo(f"Raw FragIt input: {raw_inp}")
 
-    # Re-render config with correct central fragment ID (resolved from generated .inp)
-    central_id = find_central_fragment_id(raw_inp, cfg.fragit.central_fragment_resname)
-    click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
-    ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini")
-    raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
+    # Second pass: re-render with the correct central fragment ID and re-run.
+    # Only needed for mp2_level=True (NLAYER/MPLEVL layers require a central fragment).
+    if cfg.fragit.mp2_level:
+        central_id = find_central_fragment_id(raw_inp, cfg.fragit.central_fragment_resname)
+        click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
+        ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini")
+        raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
 
     # Step 3: patch GAMESS input
     from fmo_prep.fragit.postprocess import patch_inp

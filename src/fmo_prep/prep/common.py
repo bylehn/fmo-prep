@@ -204,8 +204,31 @@ def _residue_radius_selection(
     residue_selection: Union[str, int],
     cut_off: float,
 ) -> str:
-    """Return an Amber mask of all residues with an atom within *cut_off* Å of *residue_selection*."""
-    selected = structure.view[f"{residue_selection}<@{cut_off}"]
+    """Return an Amber mask of all residues with an atom within *cut_off* Å of *residue_selection*.
+
+    *residue_selection* can be:
+    - A single uppercase letter → treated as a chain ID (e.g. 'B')
+    - An Amber mask string starting with ':' or '@' → used as-is
+    - A residue name or number string → prefixed with ':' automatically
+    """
+    sel = str(residue_selection).strip()
+
+    # Single uppercase letter with no digits → chain ID, not an Amber mask token.
+    # parmed's ':B' matches residue *name* B, not chain B, so we must resolve
+    # chain membership via the parmed API and build an atom index mask instead.
+    if sel.isalpha() and len(sel) == 1 and sel.isupper():
+        atom_indices = [a.idx + 1 for a in structure.atoms if a.residue.chain == sel]
+        if not atom_indices:
+            raise ValueError(
+                f"Chain '{sel}' not found in structure. "
+                f"Available chains: {sorted({r.chain for r in structure.residues})}"
+            )
+        # Build an @<idx1,idx2,...> mask from the chain atom indices
+        sel = "@" + ",".join(str(i) for i in atom_indices)
+    elif not sel.startswith(":") and not sel.startswith("@") and not sel.startswith("("):
+        sel = ":" + sel
+
+    selected = structure.view[f"{sel}<@{cut_off}"]
     residue_range = [r.idx for r in selected.residues]
     if not residue_range:
         raise ValueError(

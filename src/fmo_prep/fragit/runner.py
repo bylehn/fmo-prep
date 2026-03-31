@@ -78,7 +78,7 @@ def run_fragit(pdb_path: Path, config_path: Path, output_dir: Path) -> Path:
     """
     pdb_path = Path(pdb_path).resolve()
     config_path = Path(config_path).resolve()
-    output_dir = Path(output_dir)
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     out_inp = output_dir / (pdb_path.stem + ".inp")

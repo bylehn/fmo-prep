@@ -1,7 +1,7 @@
 system_type: protein_peptide
 
 inputs:
-  complex: inputs/complex.pdb
+  complex: complex_fcrn_fn001.pdb
 
 output_dir: outputs
 

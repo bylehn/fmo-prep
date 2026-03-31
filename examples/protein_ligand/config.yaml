@@ -1,8 +1,8 @@
 system_type: protein_ligand
 
 inputs:
-  complex: inputs/complex.pdb
-  ligand: inputs/ligand.sdf
+  complex: complex.pdb
+  ligand: ligand.sdf
 
 output_dir: outputs
 
