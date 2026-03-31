@@ -1,0 +1,33 @@
+[project]
+name = "fmo-prep"
+version = "0.1.0"
+description = "FMO preparation and analysis workflow"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.11"
+rdkit = "*"
+ambertools = "*"
+openbabel = "*"
+fragit = "*"
+jinja2 = "*"
+pydantic = ">=2"
+click = "*"
+matplotlib = "*"
+seaborn = "*"
+pandas = "*"
+numpy = "*"
+parmed = "*"
+pyyaml = "*"
+pytest = "*"
+pytest-cov = "*"
+hatchling = "*"
+
+[pypi-dependencies]
+fmo-prep = { path = ".", editable = true }
+
+[tasks]
+test = "pytest tests/ -v"
+prep = "fmo-prep prep"
+analyze = "fmo-prep analyze"

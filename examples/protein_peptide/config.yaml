@@ -1,0 +1,24 @@
+system_type: protein_peptide
+
+inputs:
+  complex: inputs/complex.pdb
+
+output_dir: outputs
+
+prep:
+  cut_radius: 5.0
+  # Mark genuine termini to avoid adding caps there:
+  # true_nterm: ["A:1"]
+  # true_cterm: ["A:300"]
+
+fragit:
+  central_fragment_resname: B     # chain ID of the peptide (or resname)
+  boundaries: 5.0
+  basis: "6-31G(d)"
+  fmo_level: 1
+  nbody: 2
+  mp2_level: false
+  resdim: 2.0
+  rcorsd: 2.0
+  mwords: 125
+  ngroup: 1

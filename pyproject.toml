@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fmo-prep"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "click",
+    "pydantic>=2",
+    "jinja2",
+    "parmed",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "numpy",
+    "pyyaml",
+]
+
+[project.scripts]
+fmo-prep = "fmo_prep.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fmo_prep"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
