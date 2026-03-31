@@ -1,0 +1,25 @@
+ $SYSTEM MWORDS=50 $END
+ $GDDI NGROUP=1 $END
+ $SCF CONV=1E-8 $END
+ $CONTRL NPRINT=-5 ISPHER=1
+         RUNTYP=ENERGY
+ $END
+ $BASIS GBASIS=STO NGAUSS=3 $END
+ $FMOPRP NPRINT=9 $END
+ $FMO
+      NFRAG=3
+      NBODY=2
+      RESDIM=2.0
+      RCORSD=2.0
+      ICHARG(1)=  0,  0,  1
+      FRGNAM(1)= ALA001,  GLY002,  LIG001
+      INDAT(1)=0
+            1    -5      0
+            6    -10     0
+           11    -15     0
+ $END
+ $DATA
+ title
+ C1
+...
+ $END

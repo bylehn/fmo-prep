@@ -26,3 +26,4 @@ packages = ["src/fmo_prep"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
