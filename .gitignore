@@ -1,3 +1,4 @@
+examples/*/outputs/
 __pycache__/
 *.pyc
 *.pyo
