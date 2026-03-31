@@ -28,11 +28,11 @@ Production runs live **outside** the repo, e.g.:
 | `fmo-poc/structures/processed/cap_termini.py` | `prep/common.py` (geometry helpers, parse_term_flags) | ✅ Done (ACE/NME deferred) |
 | `PDBProgress/pdbprogress/capping/cut_and_cap.py` | `prep/common.py` (cut_and_cap, H-link caps) | ✅ Done |
 | `PDBProgress/pdbprogress/cleaning/cleaning.py` | `prep/common.py` (remove_water, remove_by_residue, remove_chain) | ✅ Done |
-| `fmo-poc/scripts/gamout.py` + `gamout_nopieda.py` | `analysis/parser.py` | ⬜ Stub only |
-| `fmo-poc/scripts/plot_pieda.py` | `analysis/plots.py` | ⬜ Stub only |
-| `fmo-poc/scripts/plot_pieda_delta.py` | `analysis/plots.py` (delta mode) | ⬜ Stub only |
-| `fmo-poc/scripts/map_fragments.py` | `io/gamess.py` | ⬜ Stub only |
-| `fmo-poc/inputs/fn001/debug_fragit.py` | `io/gamess.py` (validate_fragments) | ⬜ Stub only |
+| `fmo-poc/scripts/gamout.py` + `gamout_nopieda.py` | `analysis/parser.py` | ✅ Done |
+| `fmo-poc/scripts/plot_pieda.py` | `analysis/plots.py` | ✅ Done |
+| `fmo-poc/scripts/plot_pieda_delta.py` | `analysis/plots.py` (delta mode) | ✅ Done |
+| `fmo-poc/scripts/map_fragments.py` | `io/gamess.py` | ✅ Done |
+| `fmo-poc/inputs/fn001/debug_fragit.py` | `io/gamess.py` (validate_fragments) | ✅ Done |
 | `fmo-poc/inputs/benchmarks/data/myconfig.ini` | `fragit/templates/base.ini.j2` | ✅ Done |
 
 ---
@@ -52,15 +52,15 @@ fmo-prep/
 │   │   ├── protein_peptide.py         # ✅ load → clean → cut_and_cap → save capped.pdb
 │   │   └── protein_ligand.py          # ✅ AntechamberWrapper, TLeapWrapper, minimisation pipeline
 │   ├── fragit/
-│   │   ├── runner.py                  # ⬜ render_config, run_fragit stubs
-│   │   ├── postprocess.py             # ⬜ patch_inp stub
+│   │   ├── runner.py                  # ✅ render_config, run_fragit, find_central_fragment_id
+│   │   ├── postprocess.py             # ✅ patch_inp (strip + replace header blocks, RESDIM/RCORSD)
 │   │   └── templates/base.ini.j2      # ✅ Jinja2 FragIt config template
 │   ├── analysis/
-│   │   ├── parser.py                  # ⬜ parse_gamout stub
-│   │   ├── plots.py                   # ⬜ process_csv, run_analysis stubs
-│   │   └── reports.py                 # ⬜ write_summary stub
+│   │   ├── parser.py                  # ✅ parse_gamout (pieda + nopieda modes)
+│   │   ├── plots.py                   # ✅ process_csv, run_analysis, detect_ligand_fragments, heatmaps, bar
+│   │   └── reports.py                 # ✅ write_summary
 │   └── io/
-│       ├── gamess.py                  # ⬜ parse_inp_file, write_fragmapping stubs
+│       ├── gamess.py                  # ✅ parse_inp_file, write_fragmapping, parse_frag_map_file, validate_fragments
 │       ├── pdb.py                     # ✅ thin parmed wrappers
 │       └── sdf.py                     # ✅ RDKit SDF loader
 ├── tests/
@@ -141,14 +141,12 @@ run({"complex": "complex.pdb"}, Path("outputs"), cfg)
 
 ## Next steps (in priority order)
 
-1. **`fragit/runner.py`** — implement `render_config` (Jinja2 → .ini) and `run_fragit` (subprocess)
-2. **`fragit/postprocess.py`** — implement `patch_inp`: prepend `$SYSTEM/$GDDI/$SCF/$CONTRL/$FMOPRP`
-   blocks and inject `RESDIM`/`RCORSD`/`NLAYER`/`MPLEVL` into `$FMO` block
-3. **`io/gamess.py`** — port `parse_inp_file` and `write_fragmapping` from `map_fragments.py`
-4. **`analysis/parser.py`** — port unified `parse_gamout` from `gamout.py` + `gamout_nopieda.py`
-5. **`analysis/plots.py`** — port `process_csv` and all plotting from `plot_pieda.py` + `plot_pieda_delta.py`
-6. **`analysis/reports.py`** — port `write_summary`
-7. **End-to-end test** — run full pipeline on CDK2 benchmark, diff `.inp` against reference
+1. **End-to-end test** — run full `fmo-prep prep` pipeline on CDK2 benchmark: structure prep →
+   FragIt → patch_inp; diff output `.inp` against reference `minimised_complex.inp`
+2. **Wire CLI `analyze` command** to `parse_gamout` → `run_analysis` in `cli.py`
+3. **ACE/NME capping** — port `cap_termini.py` geometry into `prep/common.py` (currently deferred;
+   H-link caps only)
+4. **Write real tests** — replace skipped stubs with actual pytest tests using fixtures
 
 ### Config notes for production runs
 
