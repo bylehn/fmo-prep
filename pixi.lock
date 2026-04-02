@@ -208,7 +208,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.2-h25fd6f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: ../fragit-main
+      - pypi: git+https://github.com/bylehn/fragit-main.git?rev=3d3ba99#3d3ba99adedddedcd0dc29aaa587cac4f6024e2c
       - pypi: ./
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-7_kmp_llvm.conda
@@ -671,10 +671,9 @@ packages:
   - pkg:pypi/fonttools?source=compressed-mapping
   size: 2935817
   timestamp: 1773137546716
-- pypi: ../fragit-main
+- pypi: git+https://github.com/bylehn/fragit-main.git?rev=3d3ba99#3d3ba99adedddedcd0dc29aaa587cac4f6024e2c
   name: fragit
   version: 1.9.2
-  sha256: 1cf7625e8d3d19495ec6bd1e07e9cb7d69ad4b5720dfdcac4218eaa3923ac800
 - conda: https://conda.anaconda.org/conda-forge/linux-64/freetype-2.14.3-ha770c72_0.conda
   sha256: c934c385889c7836f034039b43b05ccfa98f53c900db03d8411189892ced090b
   md5: 8462b5322567212beeb025f3519fb3e2

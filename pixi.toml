@@ -25,10 +25,7 @@ hatchling = "*"
 
 [pypi-dependencies]
 fmo-prep = { path = ".", editable = true }
-fragit = { path = "../fragit-main", editable = true }
-
-[activation]
-scripts = ["scripts/activate.sh"]
+fragit = { git = "https://github.com/bylehn/fragit-main.git", rev = "3d3ba99" }
 
 [tasks]
 test = "pytest tests/ -v"
