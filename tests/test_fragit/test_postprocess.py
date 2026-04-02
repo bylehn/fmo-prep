@@ -102,8 +102,8 @@ def test_patch_inp_hf_header(raw_inp, tmp_path):
 
     assert " $SCF CONV=1E-6 DIRSCF=.T. NPUNCH=0 DIIS=.F. SOSCF=.T. $END" in text
     assert "SCFTYP" not in text
-    assert "IPIEDA" not in text
-    assert "PRTDST" not in text
+    assert "PRTDST(1)=100.0,0.5,0.6,0.0" in text
+    assert "IPIEDA=2" in text
     assert "$PCM" not in text
     assert "MPLEVL(1)=0" in text
     assert "MPLEVL(1)=0,2" not in text

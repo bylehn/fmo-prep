@@ -77,10 +77,8 @@ def _build_fmoprp(cfg: FragitConfig) -> str:
         return " $FMOPRP NPRINT=9 NGUESS=2 IPIEDA=1 $END\n"
     elif cfg.calc_mode == "2layer":
         return " $FMOPRP NPRINT=9 NGUESS=2 MAXIT=100 $END\n"
-    elif cfg.calc_mode == "mp2":
+    else:  # hf or mp2
         return " $FMOPRP NPRINT=9 NGUESS=2 PRTDST(1)=100.0,0.5,0.6,0.0 IPIEDA=2 $END\n"
-    else:  # hf
-        return " $FMOPRP NPRINT=9 NGUESS=2 $END\n"
 
 
 def _build_basis(cfg: FragitConfig) -> str:
