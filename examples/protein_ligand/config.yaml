@@ -10,12 +10,12 @@ prep:
   amber_level: low
 
 fragit:
-  central_fragment_resname: LIG   # 3-letter residue name of the ligand
+  central_fragment_resname: LIG   # 3-letter residue name of the ligand (required for 2layer mode)
   boundaries: 2.0
   basis: "6-31G*"
-  fmo_level: 2
+  calc_mode: "2layer"   # hf | mp2 | 2layer
+  implicit_solvent: false
   nbody: 2
-  mp2_level: true
   resdim: 2.0
   rcorsd: 2.0
   mwords: 125

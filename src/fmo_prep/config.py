@@ -52,9 +52,21 @@ class FragitConfig(BaseModel):
     use_atom_names: bool = Field(False, description="FragIt useatomnames setting")
 
     # FMO calculation options
-    fmo_level: int = Field(2, description="FMO level (1, 2, or 3)")
+    calc_mode: Literal["hf", "mp2", "2layer"] = Field(
+        "2layer",
+        description=(
+            "Calculation mode:\n"
+            "  hf     - HF only, single FragIt pass\n"
+            "  mp2    - MP2 on entire system (PIEDA), single FragIt pass\n"
+            "  2layer - MP2 at active site (layer 2), HF elsewhere (layer 1); "
+            "requires central_fragment_resname, two FragIt passes"
+        ),
+    )
+    implicit_solvent: bool = Field(
+        False,
+        description="Add PCM implicit solvent ($PCM SOLVNT=WATER IFMO=1 ICOMP=0 $END)",
+    )
     nbody: int = Field(2, description="GAMESS NBODY setting")
-    mp2_level: bool = Field(True, description="Enable MP2 correlation (adds NLAYER=2, MPLEVL(1)=2,0)")
 
     # Postprocessing: GAMESS $FMO block parameters
     resdim: float = Field(2.0, description="GAMESS RESDIM cutoff (Å)")

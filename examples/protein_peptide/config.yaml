@@ -12,12 +12,12 @@ prep:
   # true_cterm: ["A:300"]
 
 fragit:
-  central_fragment_resname: B     # chain ID of the peptide (or resname)
+  central_fragment_resname: B     # only used for 2layer mode
   boundaries: 5.0
   basis: "6-31G(d)"
-  fmo_level: 1
+  calc_mode: "hf"   # hf | mp2 | 2layer
+  implicit_solvent: false
   nbody: 2
-  mp2_level: false
   resdim: 2.0
   rcorsd: 2.0
   mwords: 125

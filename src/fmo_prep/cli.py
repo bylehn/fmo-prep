@@ -71,7 +71,7 @@ def prep(config: Path) -> None:
 
     # Second pass: re-render with the correct central fragment ID and re-run.
     # Only needed for mp2_level=True (NLAYER/MPLEVL layers require a central fragment).
-    if cfg.fragit.mp2_level:
+    if cfg.fragit.calc_mode == "2layer":
         central_id = find_central_fragment_id(raw_inp, cfg.fragit.central_fragment_resname)
         click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
         ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini")

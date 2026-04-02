@@ -53,8 +53,7 @@ def render_config(
         central_fragment_id=central_fragment_id,
         use_atom_names=cfg.use_atom_names,
         basis=cfg.basis,
-        mp2_level=cfg.mp2_level,
-        fmo_level=cfg.fmo_level,
+        calc_mode=cfg.calc_mode,
     )
     output_path = Path(output_path)
     output_path.write_text(rendered)
