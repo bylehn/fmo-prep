@@ -21,11 +21,16 @@ useatomnames = {{ 'True' if use_atom_names else 'False' }}
 
 [fragmentpatterns]
 peptide_standard = [$(CN)][$(C(=O)NCC(=O))]
+{% if system_type == "protein_peptide" %}
+peptide_methylated = [$(CN)][$(C(=O)N(C)CC(=O))]
+{% endif %}
 a-d-pyranose = [$(C1C(CO)OC(O)C(O)C1(O))][$(OC1C(O)C(O)CC(CO)O1)]
 dnabackbone = [$(CCOP)][$(CC1OCCC1)]
 
 [protectpatterns]
+{% if system_type != "protein_peptide" %}
 nterminal = [$([NH2]),$([NH3])]CC(=O)[$(NCC=O)]
+{% endif %}
 
 [mergepatterns]
 glycine =

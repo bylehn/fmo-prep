@@ -23,6 +23,9 @@ def test_render_config_basic(tmp_path):
     assert "mp2level = True" in text
     assert "fmolevel = 2" in text
     assert "centralfragment = 42" in text
+    # protein_ligand (default): nterminal protect present, no peptide_methylated
+    assert "nterminal" in text
+    assert "peptide_methylated" not in text
 
 
 def test_render_config_mp2_full(tmp_path):
@@ -67,6 +70,19 @@ def test_render_config_returns_path(tmp_path):
     result = render_config(cfg, central_fragment_id=1, output_path=out_path)
     assert result == out_path
     assert result.exists()
+
+
+def test_render_config_protein_peptide(tmp_path):
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.runner import render_config
+
+    cfg = FragitConfig(central_fragment_resname="B", calc_mode="hf")
+    out = render_config(cfg, central_fragment_id=0, output_path=tmp_path / "fragit.ini",
+                        system_type="protein_peptide")
+    text = out.read_text()
+
+    assert "peptide_methylated" in text
+    assert "nterminal" not in text
 
 
 def test_find_central_fragment_id(tmp_path):

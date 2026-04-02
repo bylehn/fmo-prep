@@ -28,6 +28,7 @@ def render_config(
     cfg: FragitConfig,
     central_fragment_id: int,
     output_path: Path,
+    system_type: str = "protein_ligand",
 ) -> Path:
     """Render a FragIt .ini config file from the Jinja2 base template.
 
@@ -36,6 +37,9 @@ def render_config(
         central_fragment_id: Fragment index for centralfragment in the .ini.
             Pass 0 to leave it unset (fragit will not apply boundary layers).
         output_path: Where to write the rendered .ini file.
+        system_type: One of "protein_ligand" or "protein_peptide". Controls
+            whether the nterminal protect pattern is included and whether the
+            peptide_methylated fragment pattern is added.
 
     Returns:
         Path to the written .ini file.
@@ -54,6 +58,7 @@ def render_config(
         use_atom_names=cfg.use_atom_names,
         basis=cfg.basis,
         calc_mode=cfg.calc_mode,
+        system_type=system_type,
     )
     output_path = Path(output_path)
     output_path.write_text(rendered)

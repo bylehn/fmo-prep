@@ -105,10 +105,8 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
     Steps applied:
     1. Strip FragIt's $SYSTEM, $GDDI, $SCF, $CONTRL, $BASIS, $FMOPRP (and $PCM if present).
     2. Prepend our versions of those blocks, chosen based on cfg.calc_mode.
-    3. Insert $PCM block after $BASIS when cfg.implicit_solvent=True.
+    3. Set MPLEVL(1) in $FMO: hf→0, mp2→2, 2layer→0,2.
     4. Replace RESDIM/RCORSD in $FMO if non-default values are configured.
-
-    NLAYER and MPLEVL are written correctly by FragIt from the .ini config.
 
     Args:
         inp_path: Path to the FragIt-generated .inp file.
@@ -150,7 +148,28 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
     )
     text = header + text.lstrip("\n")
 
-    # --- Steps 3–4: patch RESDIM / RCORSD if non-default ---
+    # --- Step 3: set MPLEVL in $FMO block ---
+    mplevl_map = {"hf": "0", "mp2": "2", "2layer": "0,2"}
+    mplevl_val = mplevl_map[cfg.calc_mode]
+    if re.search(r"^\s*MPLEVL\(1\)\s*=", text, flags=re.MULTILINE):
+        text = re.sub(
+            r"(^\s*MPLEVL\(1\)\s*=\s*)\S+",
+            lambda m: m.group(1) + mplevl_val,
+            text, flags=re.MULTILINE,
+        )
+    else:
+        # Insert after NLAYER line if present, else before ICHARG
+        insert_after = re.search(r"^\s*NLAYER\s*=\s*\S+\n", text, flags=re.MULTILINE)
+        if insert_after:
+            pos = insert_after.end()
+        else:
+            insert_after = re.search(r"^\s*ICHARG\(1\)\s*=", text, flags=re.MULTILINE)
+            pos = insert_after.start() if insert_after else None
+        if pos is not None:
+            indent = "      "
+            text = text[:pos] + f"{indent}MPLEVL(1)={mplevl_val}\n" + text[pos:]
+
+    # --- Steps 4–5: patch RESDIM / RCORSD if non-default ---
     if cfg.resdim != 2.0:
         text = re.sub(
             r"(^\s*RESDIM\s*=\s*)\S+",

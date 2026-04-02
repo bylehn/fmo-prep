@@ -63,6 +63,7 @@ def test_patch_inp_2layer_header(raw_inp, tmp_path):
     assert " $FMOPRP NPRINT=9 NGUESS=2 MAXIT=100 $END" in text
     assert "IPIEDA" not in text
     assert "$PCM" not in text
+    assert "MPLEVL(1)=0,2" in text
 
 
 # --- mp2 mode ---
@@ -83,6 +84,8 @@ def test_patch_inp_mp2_header(raw_inp, tmp_path):
     assert "PRTDST(1)=100.0,0.5,0.6,0.0" in text
     assert "IPIEDA=2" in text
     assert "$PCM" not in text
+    assert "MPLEVL(1)=2" in text
+    assert "MPLEVL(1)=0,2" not in text
 
 
 # --- hf mode ---
@@ -102,6 +105,8 @@ def test_patch_inp_hf_header(raw_inp, tmp_path):
     assert "IPIEDA" not in text
     assert "PRTDST" not in text
     assert "$PCM" not in text
+    assert "MPLEVL(1)=0" in text
+    assert "MPLEVL(1)=0,2" not in text
 
 
 # --- implicit solvent ---

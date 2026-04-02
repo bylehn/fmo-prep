@@ -65,7 +65,7 @@ def prep(config: Path) -> None:
     # First pass: run FragIt with centralfragment=0 to generate the .inp and
     # learn the fragment names. Central fragment only matters for mp2_level runs
     # (it sets which fragment gets the NLAYER=2 active region).
-    ini_path = render_config(cfg.fragit, central_fragment_id=0, output_path=fragit_dir / "fragit.ini")
+    ini_path = render_config(cfg.fragit, central_fragment_id=0, output_path=fragit_dir / "fragit.ini", system_type=cfg.system_type)
     raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
     click.echo(f"Raw FragIt input: {raw_inp}")
 
@@ -74,7 +74,7 @@ def prep(config: Path) -> None:
     if cfg.fragit.calc_mode == "2layer":
         central_id = find_central_fragment_id(raw_inp, cfg.fragit.central_fragment_resname)
         click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
-        ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini")
+        ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini", system_type=cfg.system_type)
         raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
 
     # Step 3: patch GAMESS input

@@ -53,7 +53,7 @@ class FragitConfig(BaseModel):
 
     # FMO calculation options
     calc_mode: Literal["hf", "mp2", "2layer"] = Field(
-        "2layer",
+        "mp2",
         description=(
             "Calculation mode:\n"
             "  hf     - HF only, single FragIt pass\n"
