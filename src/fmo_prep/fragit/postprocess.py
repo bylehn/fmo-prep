@@ -182,12 +182,13 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
         )
 
     # --- Step 6: warn if total fragment charge ≠ 0 ---
-    # Legitimate charges (GLU=-1, LYS=+1, etc.) should cancel to the expected
-    # system charge (0 for neutral). If they don't, it usually means MMFF94
-    # mistyped a non-standard residue — the most common case is a modified
-    # amino acid (e.g. PEX/penicillin derivative) whose ring system is cleaved
-    # by FMO fragmentation, leaving an unusual nitrogen that MMFF94 types as
-    # anionic. Correct the ICHARG of the affected fragment manually.
+    # Legitimate charges (GLU=-1, LYS=+1, etc.) cancel to 0 for a neutral system.
+    # If the total is non-zero, MMFF94 has misassigned a charge on a non-standard
+    # residue. The common case is a modified amino acid (e.g. PEX/penicillamine,
+    # a gem-dimethyl cysteine) whose backbone is split by FMO fragmentation: the
+    # MMFF94 partial charges across the two resulting fragments don't sum to a
+    # clean integer, and the rounded total for one fragment comes out ±1 in error.
+    # Manually correct the ICHARG of the affected fragment in the $FMO block.
     icharg_match = re.search(r"ICHARG\(1\)\s*=(.*?)(?=\n\s+[A-Z\$])", text, re.DOTALL)
     if icharg_match:
         total_charge = sum(int(x) for x in re.findall(r"-?\d+", icharg_match.group(1)))
@@ -195,9 +196,8 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
             import warnings
             warnings.warn(
                 f"Total fragment charge is {total_charge:+d}, expected 0 for a neutral system. "
-                "This is usually caused by MMFF94 mistyping a non-standard residue whose ring "
-                "system is split by FMO fragmentation (e.g. PEX beta-lactam). "
-                "Manually correct the ICHARG of the affected fragment in the $FMO block.",
+                "MMFF94 has likely misassigned the charge of a non-standard residue fragment "
+                "(e.g. penicillamine/PEX). Manually correct ICHARG in the $FMO block.",
                 UserWarning,
                 stacklevel=2,
             )
