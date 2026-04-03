@@ -25,7 +25,7 @@ def raw_inp(tmp_path):
       RCORSD=2.0
       NLAYER=2
       MPLEVL(1)=0,2
-      ICHARG(1)=  0,  0,  1
+      ICHARG(1)=  0,  0,  0
       FRGNAM(1)= ALA001,  GLY002,  LIG001
       INDAT(1)=0
             1    -5      0
