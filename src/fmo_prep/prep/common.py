@@ -243,20 +243,22 @@ def _get_h_link_atom(atom: pmd.Atom, bond: pmd.Bond) -> pmd.Atom:
     Works for backbone C (cap towards N outside QM) and N (cap towards C
     outside QM). Raises ValueError for non-backbone cuts.
     """
-    if atom.name == "C":
-        linked_coords = _atom_coords(bond.atom2)
-        target_coords = _atom_coords(bond.atom1)
-    elif atom.name == "N":
-        linked_coords = _atom_coords(bond.atom1)
-        target_coords = _atom_coords(bond.atom2)
-    else:
+    if atom.name not in _H_EQ_DIST:
         raise ValueError(
             f"H-link capping only supports backbone C and N atoms; got atom '{atom.name}'. "
             "Non-peptide-backbone cuts are not yet supported."
         )
 
+    # Identify the atom in QM region (atom) and the one being replaced by H.
+    # bond.atom1/atom2 ordering is not guaranteed, so resolve dynamically.
+    other = bond.atom2 if bond.atom1 is atom else bond.atom1
+
+    atom_coords = _atom_coords(atom)
+    other_coords = _atom_coords(other)
+
     dist = _H_EQ_DIST[atom.name]
-    link_coords = linked_coords + dist * _direction_norm(target_coords, linked_coords)
+    # Place H at equilibrium distance from atom, along atom→other direction
+    link_coords = atom_coords + dist * _direction_norm(other_coords, atom_coords)
 
     h_cap = pmd.Atom(name=f"HL{atom.name}", atomic_number=1, mass=1.0079)
     h_cap.xx, h_cap.xy, h_cap.xz = link_coords
