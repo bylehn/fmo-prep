@@ -246,7 +246,7 @@ class TLeapWrapper:
         script_content = "\n".join(self.script_lines) + "\nquit\n"
 
         if script_path:
-            script_file = Path(script_path)
+            script_file = Path(script_path).resolve()
             script_file.parent.mkdir(parents=True, exist_ok=True)
             script_file.write_text(script_content)
             cmd = ["tleap", "-f", str(script_file)]
@@ -377,9 +377,9 @@ def run(input_files: dict[str, str], output_dir: Path, cfg: RunConfig) -> Path:
 
             try:
                 mol2_file, frcmods, charge = antechamber.run(
-                    input_structure=str(lig_pdb),
+                    input_structure=str(lig_pdb.resolve()),
                     residue_name=resname,
-                    target_dir=str(ligand_dir),
+                    target_dir=str(ligand_dir.resolve()),
                 )
             except RuntimeError:
                 logger.error(f"Parameterisation failed for {resname}")

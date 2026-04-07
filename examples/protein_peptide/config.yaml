@@ -15,7 +15,7 @@ fragit:
   central_fragment_resname: B     # only used for 2layer mode
   boundaries: 5.0
   basis: "6-31G(d)"
-  calc_mode: "hf"   # hf | mp2 | 2layer
+  calc_mode: "mp2"   # hf | mp2 | 2layer
   implicit_solvent: false
   nbody: 2
   resdim: 2.0

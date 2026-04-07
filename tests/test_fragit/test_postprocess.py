@@ -84,6 +84,7 @@ def test_patch_inp_mp2_header(raw_inp, tmp_path):
     assert "IPIEDA=2" in text
     assert "PRTDST" not in text
     assert "$PCM" not in text
+    assert "NLAYER=1" in text
     assert "MPLEVL(1)=2" in text
     assert "MPLEVL(1)=0,2" not in text
 
@@ -105,6 +106,7 @@ def test_patch_inp_hf_header(raw_inp, tmp_path):
     assert "IPIEDA=2" in text
     assert "PRTDST" not in text
     assert "$PCM" not in text
+    assert "NLAYER=1" in text
     assert "MPLEVL(1)=0" in text
     assert "MPLEVL(1)=0,2" not in text
 
@@ -215,3 +217,123 @@ def test_patch_inp_overwrites_in_place(raw_inp):
     result = patch_inp(raw_inp, cfg)
     assert result == raw_inp
     assert "$SYSTEM MWORDS=100" in raw_inp.read_text()
+
+
+# --- ICHARG auto-correction ---
+
+def _make_inp(tmp_path, icharg_line, frgnam_line, fmobnd_lines=""):
+    """Helper: write a minimal .inp with custom ICHARG, FRGNAM, and optional FMOBND.
+
+    INDAT has 3 fragments: atoms 1-5, 6-10, 11-15.
+    Default FMOBND (empty) means no backbone cuts → no artifact correction.
+    Pass fmobnd_lines to add cuts, e.g. '      -4        6 6-31G* 6-31G*'
+    which means BDA=4 (in frag 0, atoms 1-5) → BAA=6 (first atom of frag 1).
+    """
+    fmobnd_block = f" $FMOBND\n{fmobnd_lines}\n $END\n" if fmobnd_lines else ""
+    content = f"""\
+ $SYSTEM MWORDS=50 $END
+ $GDDI NGROUP=1 $END
+ $SCF CONV=1E-8 $END
+ $CONTRL NPRINT=-5 ISPHER=1
+         RUNTYP=ENERGY
+ $END
+ $BASIS GBASIS=STO NGAUSS=3 $END
+ $FMOPRP NPRINT=9 $END
+ $FMO
+      NFRAG=3
+      NBODY=2
+      RESDIM=2.0
+      RCORSD=2.0
+      {icharg_line}
+      {frgnam_line}
+      INDAT(1)=0
+            1    -5      0
+            6    -10     0
+           11    -15     0
+ $END
+{fmobnd_block} $DATA
+ title
+ C1
+...
+ $END
+"""
+    p = tmp_path / "icharg.inp"
+    p.write_text(content)
+    return p
+
+
+def test_fix_fragment_charges_nonstandard_next_with_cut_corrected(tmp_path):
+    """Fragment with non-standard next residue AND FMOBND cut gets charge zeroed."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # PHE014 (frag 1, atoms 6-10) has charge -1; next frag PEX015 is non-standard.
+    # FMOBND cut: BDA=9 (in frag 1, atoms 6-10) → BAA=11 (first atom of frag 2).
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  0, -1,  0",
+        "FRGNAM(1)= ALA013,  PHE014,  PEX015",
+        fmobnd_lines="      -9       11 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(central_fragment_resname="LIG", mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "fixed.inp"
+    patch_inp(inp, cfg, output_path=out)
+
+    assert "ICHARG(1)=  0,  0,  0" in out.read_text()
+
+
+def test_fix_fragment_charges_nonstandard_next_no_cut_unchanged(tmp_path):
+    """Fragment before a non-standard ligand (no FMOBND cut) is left untouched."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # ARG (frag 1, atoms 6-10) has charge -1; next frag LZ1 is non-standard ligand.
+    # No FMOBND cut between frag 1 and frag 2 → ligand is a separate complete fragment.
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  0, -1,  0",
+        "FRGNAM(1)= ALA013,  ARG014,  LZ1015",
+        fmobnd_lines="",  # no cut
+    )
+    cfg = FragitConfig(central_fragment_resname="LIG", mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "fixed.inp"
+    patch_inp(inp, cfg, output_path=out)
+
+    assert "ICHARG(1)=  0, -1,  0" in out.read_text()
+
+
+def test_fix_fragment_charges_standard_next_unchanged(tmp_path):
+    """Fragment before a standard charged residue (LYS) is left untouched."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # GLN013 (frag 0) has charge +1 because LYS014 is the inner residue — legitimate.
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  1,  0,  0",
+        "FRGNAM(1)= GLN013,  LYS014,  ALA015",
+        fmobnd_lines="      -4        6 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(central_fragment_resname="LIG", mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "fixed.inp"
+    patch_inp(inp, cfg, output_path=out)
+
+    assert "ICHARG(1)=  1,  0,  0" in out.read_text()
+
+
+def test_fix_fragment_charges_no_artifacts_unchanged(tmp_path):
+    """No correction when all non-zero charges have standard next residues."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  0,  1, -1",
+        "FRGNAM(1)= ALA013,  LYS014,  GLU015",
+        fmobnd_lines="      -4        6 6-31G* 6-31G*\n      -9       11 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(central_fragment_resname="LIG", mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "fixed.inp"
+    patch_inp(inp, cfg, output_path=out)
+
+    assert "ICHARG(1)=  0,  1, -1" in out.read_text()

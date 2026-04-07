@@ -20,8 +20,6 @@ def test_render_config_basic(tmp_path):
     assert "writer = GAMESS-FMO" in text
     assert "boundaries = 2.0" in text
     assert "basis = 6-31G*" in text
-    assert "mp2level = True" in text
-    assert "fmolevel = 2" in text
     assert "centralfragment = 42" in text
     # protein_ligand (default): nterminal protect present, no peptide_methylated
     assert "nterminal" in text
@@ -36,8 +34,9 @@ def test_render_config_mp2_full(tmp_path):
     out = render_config(cfg, central_fragment_id=0, output_path=tmp_path / "fragit.ini")
     text = out.read_text()
 
-    assert "mp2level = True" in text
-    assert "fmolevel = 1" in text
+    # mp2/2layer settings are handled by postprocess.py, not the FragIt ini
+    assert "dohop = True" in text
+    assert "efpwaters = 0" in text
 
 
 def test_render_config_hf(tmp_path):
@@ -48,7 +47,7 @@ def test_render_config_hf(tmp_path):
     out = render_config(cfg, central_fragment_id=0, output_path=tmp_path / "fragit.ini")
     text = out.read_text()
 
-    assert "mp2level" not in text
+    assert "dohop = True" in text
 
 
 def test_render_config_central_fragment_zero(tmp_path):
