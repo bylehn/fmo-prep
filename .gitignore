@@ -19,3 +19,6 @@ MDOUT
 MDINFO
 restrt
 mdcrd
+graphify-out/
+CLAUDE.local.md
+.claude/settings.local.json

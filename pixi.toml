@@ -29,3 +29,6 @@ fragit = { git = "https://github.com/bylehn/fragit-main.git", rev = "3d3ba99" }
 
 [tasks]
 test = "pytest tests/ -v"
+
+[activation]
+env = { QT_QPA_PLATFORM = "xcb" }
