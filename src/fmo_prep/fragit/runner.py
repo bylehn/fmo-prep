@@ -16,6 +16,7 @@ added by postprocess.patch_inp.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -44,6 +45,12 @@ def render_config(
     Returns:
         Path to the written .ini file.
     """
+    output_path = Path(output_path)
+
+    if cfg.config_file_override is not None:
+        shutil.copy(cfg.config_file_override, output_path)
+        return output_path
+
     templates_dir = Path(__file__).parent / "templates"
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
@@ -59,8 +66,10 @@ def render_config(
         basis=cfg.basis,
         calc_mode=cfg.calc_mode,
         system_type=system_type,
+        charge_model=cfg.charge_model,
+        maxfragsize=cfg.maxfragsize,
+        fmo_level=cfg.fmo_level,
     )
-    output_path = Path(output_path)
     output_path.write_text(rendered)
     return output_path
 
@@ -116,12 +125,24 @@ def run_fragit(pdb_path: Path, config_path: Path, output_dir: Path) -> Path:
     return out_inp
 
 
-def find_central_fragment_id(inp_path: Path, resname: str) -> int:
-    """Return the 1-based fragment index whose FRGNAM starts with *resname*.
+def find_central_fragment_id(
+    inp_path: Path,
+    pdb_path: Path,
+    resname: str,
+    chain: str | None = None,
+) -> int:
+    """Return the 1-based fragment index for a ligand identified by residue name and chain.
+
+    Uses coordinate-based matching ($FMOXYZ ↔ PDB) rather than FRGNAM string
+    matching, which is unreliable in multi-chain systems where the same residue
+    name may appear on multiple chains.
 
     Args:
         inp_path: Path to a FragIt-generated GAMESS .inp file.
-        resname: Residue name prefix to search for (case-insensitive).
+        pdb_path: Path to the PDB file that was given to FragIt.
+        resname: Residue name to locate (exact match against majority_residue).
+        chain: Chain ID to disambiguate when resname appears on multiple chains.
+            Pass None to match any chain (safe for single-chain systems).
 
     Returns:
         Fragment index (1-based).
@@ -129,14 +150,7 @@ def find_central_fragment_id(inp_path: Path, resname: str) -> int:
     Raises:
         ValueError: If no matching fragment is found.
     """
-    from fmo_prep.io.gamess import parse_inp_file
+    from fmo_prep.fragit.postprocess import build_fragment_residue_map, find_fragment_by_chain_resname
 
-    frag_names, _ = parse_inp_file(inp_path)
-    target = resname.strip().upper()
-    for i, name in enumerate(frag_names, start=1):
-        if name.upper().startswith(target):
-            return i
-    raise ValueError(
-        f"Fragment '{resname}' not found in {inp_path}. "
-        f"Available names (first 10): {frag_names[:10]}"
-    )
+    fragment_map = build_fragment_residue_map(inp_path, pdb_path)
+    return find_fragment_by_chain_resname(fragment_map, chain, resname)

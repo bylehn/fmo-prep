@@ -337,3 +337,176 @@ def test_fix_fragment_charges_no_artifacts_unchanged(tmp_path):
     patch_inp(inp, cfg, output_path=out)
 
     assert "ICHARG(1)=  0,  1, -1" in out.read_text()
+
+
+# --- Pass 2: impossible |charge| > 1 clamping ---
+
+def test_pass2_clamps_interior_standard_residue(tmp_path):
+    """Interior ALA with charge +2 is clamped to +1 (MMFF94 rounding artifact)."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # ALA014 (frag 1, atoms 6-10): charge +2, has both incoming (BAA=6) and outgoing (BDA=9)
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  0,  2,  0",
+        "FRGNAM(1)= GLN013,  ALA014,  VAL015",
+        fmobnd_lines="      -4        6 6-31G* 6-31G*\n      -9       11 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "clamped.inp"
+    patch_inp(inp, cfg, output_path=out)
+    assert "ICHARG(1)=  0,  1,  0" in out.read_text()
+
+
+def test_pass2_skips_chain_terminus(tmp_path):
+    """Chain-terminal fragment with |charge| > 1 is NOT clamped."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # GLN013 (frag 0, atoms 1-5): charge +2, only outgoing cut (no incoming) → terminus
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  2,  0,  0",
+        "FRGNAM(1)= GLN013,  ALA014,  VAL015",
+        fmobnd_lines="      -4        6 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "terminus.inp"
+    patch_inp(inp, cfg, output_path=out)
+    assert "ICHARG(1)=  2,  0,  0" in out.read_text()
+
+
+def test_pass2_skips_phosphorylated_residue(tmp_path):
+    """SEP (phosphorylated) with charge -2 is NOT clamped."""
+    from fmo_prep.config import FragitConfig
+    from fmo_prep.fragit.postprocess import patch_inp
+
+    # SEP014 (frag 1, atoms 6-10): charge -2, interior — but SEP is in _PHOSPHORYLATED_RESIDUES
+    inp = _make_inp(
+        tmp_path,
+        "ICHARG(1)=  0, -2,  0",
+        "FRGNAM(1)= GLN013,  SEP014,  VAL015",
+        fmobnd_lines="      -4        6 6-31G* 6-31G*\n      -9       11 6-31G* 6-31G*",
+    )
+    cfg = FragitConfig(mwords=50, ngroup=1, calc_mode="hf")
+    out = tmp_path / "phos.inp"
+    patch_inp(inp, cfg, output_path=out)
+    assert "ICHARG(1)=  0, -2,  0" in out.read_text()
+
+
+# --- build_fragment_residue_map / find_fragment_by_chain_resname ---
+
+def _make_fmoxyz_fixtures(tmp_path, frags):
+    """Build a minimal patched .inp (with $FMOXYZ) and a matching .pdb.
+
+    frags: list of (resname, chain, resid, [(x,y,z), ...])
+    """
+    all_atoms = []
+    for resname, chain, resid, coords in frags:
+        for x, y, z in coords:
+            all_atoms.append((resname, chain, resid, x, y, z))
+
+    pdb_lines = []
+    for i, (resname, chain, resid, x, y, z) in enumerate(all_atoms, start=1):
+        record = "HETATM" if resname not in ("ALA", "GLY", "LYS", "ARG") else "ATOM  "
+        pdb_lines.append(
+            f"{record}{i:5d}  CA  {resname:<3s} {chain}{resid:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C"
+        )
+    pdb_lines.append("END")
+    pdb = tmp_path / "test.pdb"
+    pdb.write_text("\n".join(pdb_lines) + "\n")
+
+    indat_lines = []
+    fmoxyz_lines = []
+    atom_idx = 1
+    for resname, chain, resid, coords in frags:
+        n = len(coords)
+        indat_lines.append(f"      {atom_idx:5d} {-(atom_idx + n - 1):6d}     0")
+        for x, y, z in coords:
+            fmoxyz_lines.append(f"C    6.0  {x:10.3f}{y:10.3f}{z:10.3f}")
+        atom_idx += n
+
+    nfrag = len(frags)
+    frgnam = ",  ".join(f"{r[0]}{r[2]:03d}" for r in frags)
+    inp_text = (
+        f" $SYSTEM MWORDS=125 $END\n"
+        f" $GDDI NGROUP=1 $END\n"
+        f" $SCF CONV=1E-6 DIRSCF=.T. NPUNCH=0 DIIS=.F. SOSCF=.T. $END\n"
+        f" $CONTRL NPRINT=-5 ISPHER=1\n"
+        f"         RUNTYP=ENERGY\n"
+        f" $END\n"
+        f" $BASIS GBASIS=N31 NGAUSS=6 NDFUNC=1 $END\n"
+        f" $FMOPRP NPRINT=9 NGUESS=2 IPIEDA=2 $END\n"
+        f" $FMO\n"
+        f"      NFRAG={nfrag}\n"
+        f"      NBODY=2\n"
+        f"      NLAYER=1\n"
+        f"      MPLEVL(1)=2\n"
+        f"      ICHARG(1)=" + ",".join("  0" for _ in frags) + "\n"
+        f"      FRGNAM(1)= {frgnam}\n"
+        f"      INDAT(1)=0\n"
+        + "\n".join(indat_lines) + "\n"
+        f" $END\n"
+        f" $FMOXYZ\n"
+        + "\n".join(fmoxyz_lines) + "\n"
+        f" $END\n"
+    )
+    inp = tmp_path / "patched.inp"
+    inp.write_text(inp_text)
+    return inp, pdb
+
+
+def test_build_fragment_residue_map_basic(tmp_path):
+    from fmo_prep.fragit.postprocess import build_fragment_residue_map
+
+    inp, pdb = _make_fmoxyz_fixtures(tmp_path, [
+        ("ALA", "A", 1, [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]),
+        ("GLY", "A", 2, [(3.0, 0.0, 0.0), (4.0, 0.0, 0.0)]),
+        ("LIG", "A", 3, [(5.0, 0.0, 0.0), (6.0, 0.0, 0.0)]),
+    ])
+    fmap = build_fragment_residue_map(inp, pdb)
+
+    assert len(fmap) == 3
+    assert fmap[0]["fragment_index"] == 1
+    assert fmap[0]["majority_residue"] == "ALA"
+    assert fmap[2]["fragment_index"] == 3
+    assert fmap[2]["majority_residue"] == "LIG"
+    assert fmap[2]["chain"] == "A"
+    # fragment_map.json written alongside inp
+    json_path = inp.parent / "fragment_map.json"
+    assert json_path.exists()
+
+
+def test_find_fragment_by_chain_resname_no_chain(tmp_path):
+    from fmo_prep.fragit.postprocess import build_fragment_residue_map, find_fragment_by_chain_resname
+
+    inp, pdb = _make_fmoxyz_fixtures(tmp_path, [
+        ("ALA", "A", 1, [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]),
+        ("LIG", "A", 3, [(3.0, 0.0, 0.0), (4.0, 0.0, 0.0)]),
+    ])
+    fmap = build_fragment_residue_map(inp, pdb)
+    assert find_fragment_by_chain_resname(fmap, None, "LIG") == 2
+
+
+def test_find_fragment_by_chain_resname_with_chain(tmp_path):
+    from fmo_prep.fragit.postprocess import build_fragment_residue_map, find_fragment_by_chain_resname
+
+    inp, pdb = _make_fmoxyz_fixtures(tmp_path, [
+        ("LIG", "A", 1, [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]),
+        ("LIG", "B", 1, [(3.0, 0.0, 0.0), (4.0, 0.0, 0.0)]),
+    ])
+    fmap = build_fragment_residue_map(inp, pdb)
+    assert find_fragment_by_chain_resname(fmap, "B", "LIG") == 2
+
+
+def test_find_fragment_by_chain_resname_not_found(tmp_path):
+    from fmo_prep.fragit.postprocess import build_fragment_residue_map, find_fragment_by_chain_resname
+
+    inp, pdb = _make_fmoxyz_fixtures(tmp_path, [
+        ("ALA", "A", 1, [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]),
+    ])
+    fmap = build_fragment_residue_map(inp, pdb)
+    with pytest.raises(ValueError, match="No fragment"):
+        find_fragment_by_chain_resname(fmap, None, "LIG")

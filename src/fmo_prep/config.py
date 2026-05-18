@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PrepConfig(BaseModel):
@@ -42,14 +42,17 @@ class PrepConfig(BaseModel):
 class FragitConfig(BaseModel):
     """Parameters controlling FragIt fragmentation and GAMESS input generation."""
 
-    central_fragment_resname: str = Field(
-        description="Residue name of the ligand/peptide chain to use as central fragment, e.g. 'LZ1276'"
+    central_fragment_resname: str | None = Field(
+        None,
+        description="Residue name of the ligand/peptide chain to use as central fragment, e.g. 'LZ1276'. Required for calc_mode='2layer'.",
     )
 
     # FragIt .ini output options
     boundaries: float = Field(2.0, description="Boundary distance (Å) for FragIt output layers")
     basis: str = Field("6-31G*", description="Basis set string passed to FragIt (e.g. '6-31G*', '6-31G(d)')")
     use_atom_names: bool = Field(False, description="FragIt useatomnames setting")
+    charge_model: str = Field("MMFF94", description="Charge model for FragIt (e.g. 'MMFF94', 'AM1BCC', 'formal')")
+    maxfragsize: int = Field(100, description="Maximum fragment size (number of heavy atoms)")
 
     # FMO calculation options
     calc_mode: Literal["hf", "mp2", "2layer"] = Field(
@@ -62,11 +65,20 @@ class FragitConfig(BaseModel):
             "requires central_fragment_resname, two FragIt passes"
         ),
     )
+    fmo_level: int = Field(2, description="FMO level (1 or 2). Also accepts 'low' (→1) or 'high' (→2)")
     implicit_solvent: bool = Field(
         False,
         description="Add PCM implicit solvent ($PCM SOLVNT=WATER IFMO=1 ICOMP=0 $END)",
     )
     nbody: int = Field(2, description="GAMESS NBODY setting")
+    ligand_chain: str | None = Field(
+        None,
+        description="Chain ID of the ligand for coord-based central fragment resolution (2layer mode)",
+    )
+    config_file_override: Path | None = Field(
+        None,
+        description="Path to a custom FragIt .ini file. Skips Jinja template rendering when set.",
+    )
 
     # Postprocessing: GAMESS $FMO block parameters
     resdim: float = Field(2.0, description="GAMESS RESDIM cutoff (Å)")
@@ -75,6 +87,18 @@ class FragitConfig(BaseModel):
     # Postprocessing: GAMESS $SYSTEM / $GDDI
     mwords: int = Field(125, description="$SYSTEM MWORDS")
     ngroup: int = Field(1, description="$GDDI NGROUP")
+
+    @field_validator("fmo_level", mode="before")
+    @classmethod
+    def _coerce_fmo_level(cls, v: Any) -> int:
+        if isinstance(v, str):
+            lv = v.lower()
+            if lv == "low":
+                return 1
+            if lv == "high":
+                return 2
+            return int(v)
+        return int(v)
 
 
 class RunConfig(BaseModel):
@@ -108,3 +132,17 @@ class RunConfig(BaseModel):
     @property
     def output_path(self) -> Path:
         return Path(self.output_dir)
+
+
+class FragitOnlyConfig(BaseModel):
+    """Top-level config for the standalone `fmo-prep fragit` command."""
+
+    pdb: Path = Field(description="Path to the prepared PDB file")
+    output_dir: Path = Field(default=Path("outputs"), description="Directory for all generated outputs")
+    fragit: FragitConfig = Field(default_factory=FragitConfig)
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> FragitOnlyConfig:
+        """Load and validate configuration from a YAML file."""
+        raw: dict[str, Any] = yaml.safe_load(Path(path).read_text())
+        return cls.model_validate(raw)

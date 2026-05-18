@@ -31,9 +31,12 @@ Implicit solvent (cfg.implicit_solvent=True):
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 from fmo_prep.config import FragitConfig
 
@@ -56,6 +59,10 @@ _STANDARD_RESIDUES = {
     "SEP", "TPO", "PTR",  # phosphorylated residues
 }
 
+# Residues with a phosphate group that can legitimately carry ICHARG = -2 for
+# interior fragments.  Phosphate dianion at physiological pH contributes -2.
+_PHOSPHORYLATED_RESIDUES = {"SEP", "TPO", "PTR"}
+
 # Blocks written by FragIt that we strip and replace
 _STRIP_PATTERNS = [
     r"^ \$SYSTEM\b.*?\$END\n",
@@ -77,16 +84,17 @@ def _build_scf(cfg: FragitConfig) -> str:
         return " $SCF CONV=1E-6 DIRSCF=.T. NPUNCH=0 DIIS=.F. SOSCF=.T. $END\n"
 
 
-def _build_contrl(cfg: FragitConfig) -> str:
+def _build_contrl(cfg: FragitConfig, afo: bool = False) -> str:
+    local = " LOCAL=BOYS" if afo else ""
     if cfg.calc_mode == "2layer":
         return (
-            " $CONTRL NPRINT=-5 ISPHER=1 MAXIT=100\n"
+            f" $CONTRL NPRINT=-5 ISPHER=1 MAXIT=100{local}\n"
             "         RUNTYP=ENERGY SCFTYP=RHF\n"
             " $END\n"
         )
     else:
         return (
-            " $CONTRL NPRINT=-5 ISPHER=1\n"
+            f" $CONTRL NPRINT=-5 ISPHER=1{local}\n"
             "         RUNTYP=ENERGY\n"
             " $END\n"
         )
@@ -135,28 +143,47 @@ def _format_icharg(charges: list[int]) -> str:
     return "\n".join(rows)
 
 
-def _parse_indat(text: str) -> list[tuple[int, int]]:
-    """Parse INDAT(1) block → list of (start, end) atom index ranges, one per fragment.
+def _parse_indat(text: str) -> list[list[tuple[int, int]]]:
+    """Parse INDAT(1) block → list of range lists, one per fragment.
 
-    Each line in INDAT has the form ``start  -end  0`` where start and end are
-    1-based atom indices (end is stored negative) and 0 terminates the fragment.
-    Returns a list whose i-th element is (start, end) for fragment i.
+    Each fragment is terminated by a ``0`` token. A positive integer starts a
+    range and the immediately following negative integer ends it. A bare positive
+    with no following negative (e.g. a cap hydrogen at a backbone cut) is treated
+    as a single-atom range [p, p]. Fragments with many atom ranges may span
+    multiple lines — 0 is the delimiter, not the line boundary.
+
+    Returns a list whose i-th element is a list of (start, end) tuples covering
+    all atom ranges for fragment i.
     """
     m = re.search(r"INDAT\(1\)\s*=\s*0\n(.*?)(?:\n\s*\n|\s*\$END)", text, re.DOTALL)
     if not m:
         return []
-    fragments = []
+
+    all_tokens = []
     for line in m.group(1).splitlines():
-        tokens = line.split()
-        if not tokens:
-            continue
-        # Each line: start -end 0  (may occasionally have multiple range pairs
-        # before the trailing 0, but FragIt always writes one pair per line)
-        ints = [int(t) for t in tokens]
-        positives = [v for v in ints if v > 0]
-        negatives = [v for v in ints if v < 0]
-        if positives and negatives:
-            fragments.append((positives[0], abs(negatives[-1])))
+        all_tokens.extend(int(t) for t in line.split())
+
+    fragments = []
+    current_ranges: list[tuple[int, int]] = []
+    i = 0
+    while i < len(all_tokens):
+        v = all_tokens[i]
+        if v == 0:
+            if current_ranges:
+                fragments.append(current_ranges)
+                current_ranges = []
+            i += 1
+        elif v > 0:
+            if i + 1 < len(all_tokens) and all_tokens[i + 1] < 0:
+                current_ranges.append((v, abs(all_tokens[i + 1])))
+                i += 2
+            else:
+                current_ranges.append((v, v))
+                i += 1
+        else:
+            i += 1
+    if current_ranges:
+        fragments.append(current_ranges)
     return fragments
 
 
@@ -185,23 +212,22 @@ def _parse_fmobnd(text: str) -> list[tuple[int, int]]:
 def _fix_fragment_charges(text: str) -> str:
     """Auto-correct ICHARG for fragments whose charge is a MMFF94 artifact.
 
-    In GAMESS FMO, FragIt cuts each peptide chain at Cα–C backbone bonds.
-    Fragment i therefore contains:
-      - the C=O of the "donor" residue (named FRGNAM[i])
-      - the N, Cα, and side chain of the "inner" residue (named FRGNAM[i+1])
+    Two passes are applied:
 
-    This split is recorded in $FMOBND as a (BDA, BAA) atom-index pair where
-    the BDA belongs to fragment i and the BAA belongs to fragment i+1.
+    Pass 1 — non-standard residue cut artifacts:
+      FragIt cuts each peptide chain at Cα–C backbone bonds. Fragment i
+      therefore contains the C=O of the "donor" residue (FRGNAM[i]) and
+      the N, Cα, and side chain of the "inner" residue (FRGNAM[i+1]).
+      A non-zero ICHARG on fragment i is a MMFF94 artifact when:
+        1. FRGNAM[i+1] is a non-standard residue (not in _STANDARD_RESIDUES), AND
+        2. $FMOBND contains a cut between fragment i and i+1.
+      Those fragments are corrected to ICHARG=0.
 
-    A non-zero ICHARG on fragment i is a MMFF94 artifact when:
-      1. FRGNAM[i+1] is a non-standard residue (not in _STANDARD_RESIDUES), AND
-      2. $FMOBND contains a cut between fragment i and fragment i+1.
-         (This confirms that the non-standard residue's atoms actually appear
-         inside fragment i — as opposed to being a separate ligand/cofactor
-         fragment that merely happens to follow fragment i.)
-
-    Charges on fragments NOT meeting both criteria are left untouched,
-    preserving legitimate charges from LYS, ARG, GLU, ASP, ligands, etc.
+    Pass 2 — impossible magnitude for standard residues:
+      MMFF94 partial-charge rounding can produce |ICHARG| > 1 for standard
+      residue fragments near charged residues (e.g. fragment following ARG may
+      accumulate +2). No standard amino acid can legitimately contribute
+      |ICHARG| > 1 to its fragment. Those values are clamped to sign(charge).
     """
     icharg_m = re.search(r"(ICHARG\(1\)\s*=)(.*?)(\n\s+FRGNAM)", text, re.DOTALL)
     frgnam_m = re.search(r"FRGNAM\(1\)\s*=(.*?)(\n\s+INDAT)", text, re.DOTALL)
@@ -214,43 +240,62 @@ def _fix_fragment_charges(text: str) -> str:
     def resname(frag: str) -> str:
         return re.match(r"([A-Z]+)", frag).group(1)
 
-    # Build atom-index sets per fragment and the set of BDA atom indices.
-    frag_ranges = _parse_indat(text)   # list of (start, end)
-    fmobnd_pairs = _parse_fmobnd(text) # list of (bda, baa)
-
-    # Map: BDA atom index → BAA atom index (for quick lookup)
+    frag_ranges = _parse_indat(text)
+    fmobnd_pairs = _parse_fmobnd(text)
     bda_to_baa = {bda: baa for bda, baa in fmobnd_pairs}
 
+    def in_fragment(atom: int, fi: int) -> bool:
+        return any(s <= atom <= e for s, e in frag_ranges[fi])
+
     def has_fmobnd_cut(fi: int, fi1: int) -> bool:
-        """Return True if FMOBND contains a cut between fragment fi and fi+1."""
         if fi >= len(frag_ranges) or fi1 >= len(frag_ranges):
             return False
-        start_i, end_i = frag_ranges[fi]
-        start_i1, end_i1 = frag_ranges[fi1]
         for bda, baa in bda_to_baa.items():
-            if start_i <= bda <= end_i and start_i1 <= baa <= end_i1:
+            if in_fragment(bda, fi) and in_fragment(baa, fi1):
                 return True
         return False
 
-    artifacts = [
-        i for i, charge in enumerate(charges)
-        if charge != 0
-        and i + 1 < len(names)
-        and resname(names[i + 1]) not in _STANDARD_RESIDUES
-        and has_fmobnd_cut(i, i + 1)
-    ]
-
-    if not artifacts:
-        return text
-
     corrected = list(charges)
-    for i in artifacts:
+    changed = False
+
+    # Pass 1: correct artifacts caused by non-standard residues at cut sites
+    for i, charge in enumerate(charges):
+        if (charge != 0
+                and i + 1 < len(names)
+                and resname(names[i + 1]) not in _STANDARD_RESIDUES
+                and has_fmobnd_cut(i, i + 1)):
+            logger.warning(
+                "Auto-corrected ICHARG for fragment %s: %+d → 0 "
+                "(FMOBND-confirmed cut into non-standard residue %s — likely MMFF94 artifact).",
+                names[i], charge, resname(names[i + 1]),
+            )
+            corrected[i] = 0
+            changed = True
+
+    # Pass 2: clamp |charge| > 1 for interior standard residue fragments.
+    # Exemptions: chain termini and phosphorylated residues (legitimate -2).
+    for i, charge in enumerate(corrected):
+        if abs(charge) <= 1 or resname(names[i]) not in _STANDARD_RESIDUES:
+            continue
+        if resname(names[i]) in _PHOSPHORYLATED_RESIDUES:
+            continue
+        if i >= len(frag_ranges):
+            continue
+        has_outgoing = any(in_fragment(bda, i) for bda in bda_to_baa)
+        has_incoming = any(in_fragment(baa, i) for baa in bda_to_baa.values())
+        if not has_outgoing or not has_incoming:
+            continue  # chain terminus — charge may legitimately exceed ±1
+        clamped = 1 if charge > 0 else -1
         logger.warning(
-            "Auto-corrected ICHARG for fragment %s: %+d → 0 "
-            "(FMOBND-confirmed cut into non-standard residue %s — likely MMFF94 artifact).",
-            names[i], corrected[i], resname(names[i + 1]),
+            "Auto-corrected ICHARG for fragment %s: %+d → %+d "
+            "(|charge| > 1 impossible for interior standard residue — MMFF94 partial-charge rounding artifact).",
+            names[i], charge, clamped,
         )
-        corrected[i] = 0
+        corrected[i] = clamped
+        changed = True
+
+    if not changed:
+        return text
 
     new_icharg = _format_icharg(corrected)
     text = text[: icharg_m.start()] + new_icharg + text[icharg_m.end() - len(icharg_m.group(3)):]
@@ -287,6 +332,9 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
     if "$FMO" not in text:
         raise ValueError(f"No $FMO block found in {inp_path} — is this a valid FragIt .inp?")
 
+    # Detect AFO mode before stripping — fragit writes RAFO(1)= in $FMO when dohop=False.
+    afo_mode = bool(re.search(r"^\s*RAFO\(1\)\s*=", text, flags=re.MULTILINE))
+
     # --- Step 1: strip existing header blocks ---
     # $CONTRL may span two lines — handle with DOTALL first
     text = re.sub(r"^ \$CONTRL\b.*?\$END\n", "", text, flags=re.MULTILINE | re.DOTALL)
@@ -296,12 +344,16 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
             continue
         text = re.sub(pattern, "", text, flags=re.MULTILINE)
 
+    # Remove RAFO only for HOP mode (dohop=True); AFO mode needs RAFO(1)= in $FMO.
+    if not afo_mode:
+        text = re.sub(r"^\s*RAFO\(1\)\s*=.*\n", "", text, flags=re.MULTILINE)
+
     # --- Step 2: prepend standardised header ---
     header = (
         f" $SYSTEM MWORDS={cfg.mwords} $END\n"
         f" $GDDI NGROUP={cfg.ngroup} $END\n"
         + _build_scf(cfg)
-        + _build_contrl(cfg)
+        + _build_contrl(cfg, afo=afo_mode)
         + _build_basis(cfg)
         + (_build_pcm() if cfg.implicit_solvent else "")
         + _build_fmoprp(cfg)
@@ -364,3 +416,184 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
 
     output_path.write_text(text)
     return output_path
+
+
+def _parse_pdb_atoms(pdb_path: Path) -> list[dict]:
+    """Parse every ATOM and HETATM record from a PDB file.
+
+    Both record types are included so that ligands (HETATM) are present
+    alongside standard residues (ATOM) — FragIt writes all of them into
+    $FMOXYZ, so the PDB atom list must contain them for coordinate matching.
+    """
+    atoms = []
+    for line in Path(pdb_path).read_text().splitlines():
+        if line.startswith(("ATOM  ", "HETATM")):
+            atoms.append(
+                {
+                    "index": int(line[6:11].strip()),
+                    "name": line[12:16].strip(),
+                    "resname": line[17:20].strip(),
+                    "chain": line[21].strip(),
+                    "resid": int(line[22:26].strip()),
+                    "x": float(line[30:38].strip()),
+                    "y": float(line[38:46].strip()),
+                    "z": float(line[46:54].strip()),
+                }
+            )
+    return atoms
+
+
+def _parse_fmoxyz_atoms(text: str) -> list[tuple[float, float, float]]:
+    """Extract atom coordinates from the $FMOXYZ block.
+
+    Each line: LABEL  NUCLEAR_CHARGE  X  Y  Z (Å).
+    Returns a list parallel to INDAT order (element 0 → INDAT atom 1).
+    """
+    m = re.search(r"^\s*\$FMOXYZ\b(.*?)^\s*\$END\b", text, re.MULTILINE | re.DOTALL)
+    if not m:
+        return []
+    coords = []
+    for line in m.group(1).splitlines():
+        tokens = line.split()
+        if len(tokens) >= 5:
+            try:
+                coords.append((float(tokens[2]), float(tokens[3]), float(tokens[4])))
+            except ValueError:
+                pass
+    return coords
+
+
+def _match_fmoxyz_to_pdb(
+    fmoxyz_coords: list[tuple[float, float, float]],
+    pdb_atoms: list[dict],
+) -> list[dict]:
+    """Map each FMOXYZ atom to its PDB counterpart by coordinate proximity (1e-3 Å).
+
+    Returns a list parallel to fmoxyz_coords: element i → PDB atom for INDAT atom i+1.
+
+    Raises:
+        ValueError: If any FMOXYZ coordinate cannot be matched to a PDB atom.
+    """
+    tol = 1e-3
+    matched = []
+    for i, (x, y, z) in enumerate(fmoxyz_coords):
+        pdb_atom = next(
+            (
+                p for p in pdb_atoms
+                if abs(p["x"] - x) < tol and abs(p["y"] - y) < tol and abs(p["z"] - z) < tol
+            ),
+            None,
+        )
+        if pdb_atom is None:
+            raise ValueError(
+                f"No PDB atom matches INDAT atom {i + 1} at ({x:.3f}, {y:.3f}, {z:.3f}). "
+                f"Ensure the PDB passed to build_fragment_residue_map is the same file "
+                f"that was given to FragIt."
+            )
+        matched.append(pdb_atom)
+    return matched
+
+
+def _map_fragment2residues(
+    indat_ranges: list[list[tuple[int, int]]],
+    atom_residues: list[dict],
+) -> list[dict]:
+    """Assign each FMO fragment to its dominant PDB residue using INDAT atom ranges.
+
+    Returns a list of fragment dicts:
+    {
+        "fragment_index": int,       # 1-based
+        "chain": str,
+        "majority_residue": str,
+        "majority_resnum": int,
+        "all_residues": [{"resname": str, "resnum": int, "chain": str}, ...]
+    }
+    """
+    residue_atom_totals = Counter(
+        (a["chain"], a["resname"], a["resid"]) for a in atom_residues
+    )
+
+    result = []
+    for i, ranges in enumerate(indat_ranges):
+        fragment_atoms = []
+        for start, end in ranges:
+            fragment_atoms += atom_residues[start - 1 : end]
+
+        fragment_counts = Counter(
+            (a["chain"], a["resname"], a["resid"]) for a in fragment_atoms
+        )
+
+        maj_chain, maj_resname, maj_resnum = fragment_counts.most_common(1)[0][0]
+
+        all_residues = []
+        for (chain, resname, resnum), count in fragment_counts.items():
+            if count / residue_atom_totals[(chain, resname, resnum)] > 0.5:
+                all_residues.append({"resname": resname, "resnum": resnum, "chain": chain})
+
+        result.append(
+            {
+                "fragment_index": i + 1,
+                "chain": maj_chain,
+                "majority_residue": maj_resname,
+                "majority_resnum": maj_resnum,
+                "all_residues": all_residues,
+            }
+        )
+    return result
+
+
+def build_fragment_residue_map(inp_path: Path, pdb_path: Path) -> list[dict]:
+    """Build a mapping from FMO fragment indices to PDB residues.
+
+    Matches $FMOXYZ atom coordinates back to PDB atoms (tolerance 1e-3 Å) to
+    produce a reliable fragment→residue mapping even in multi-chain systems.
+
+    Writes ``fragment_map.json`` alongside the .inp file and returns the list.
+
+    Args:
+        inp_path: Path to the FragIt-generated (and patched) GAMESS .inp file.
+        pdb_path: Path to the PDB file given to FragIt — coordinates must match.
+
+    Returns:
+        List of fragment dicts as described in _map_fragment2residues.
+    """
+    text = inp_path.read_text()
+    pdb_atoms = _parse_pdb_atoms(pdb_path)
+    fmoxyz_coords = _parse_fmoxyz_atoms(text)
+    atom_residues = _match_fmoxyz_to_pdb(fmoxyz_coords, pdb_atoms)
+    indat_ranges = _parse_indat(text)
+    fragment_map = _map_fragment2residues(indat_ranges, atom_residues)
+
+    output_path = inp_path.parent / "fragment_map.json"
+    output_path.write_text(json.dumps(fragment_map, indent=2))
+    logger.info("Wrote fragment residue map to %s (%d fragments)", output_path, len(fragment_map))
+
+    return fragment_map
+
+
+def find_fragment_by_chain_resname(
+    fragment_map: list[dict],
+    chain: Optional[str],
+    resname: str,
+) -> int:
+    """Return the 1-based fragment index whose majority residue matches chain+resname.
+
+    Args:
+        fragment_map: Output of build_fragment_residue_map.
+        chain: Chain ID to match, or None to ignore chain.
+        resname: Residue name to match.
+
+    Raises:
+        ValueError: If no matching fragment is found.
+    """
+    for entry in fragment_map:
+        if chain is None:
+            if entry["majority_residue"] == resname:
+                return entry["fragment_index"]
+        else:
+            if entry["chain"] == chain and entry["majority_residue"] == resname:
+                return entry["fragment_index"]
+
+    if chain is None:
+        raise ValueError(f"No fragment with residue {resname}")
+    raise ValueError(f"No fragment in chain {chain} with residue {resname}")

@@ -58,31 +58,90 @@ def prep(config: Path) -> None:
 
     # Step 2: render FragIt config and run FragIt
     from fmo_prep.fragit.runner import render_config, run_fragit, find_central_fragment_id
+    from fmo_prep.fragit.postprocess import patch_inp, build_fragment_residue_map
 
     fragit_dir = output_dir / "fragit"
     fragit_dir.mkdir(exist_ok=True)
 
-    # First pass: run FragIt with centralfragment=0 to generate the .inp and
-    # learn the fragment names. Central fragment only matters for mp2_level runs
-    # (it sets which fragment gets the NLAYER=2 active region).
+    # First pass: run FragIt with centralfragment=0 to generate the .inp.
     ini_path = render_config(cfg.fragit, central_fragment_id=0, output_path=fragit_dir / "fragit.ini", system_type=cfg.system_type)
     raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
     click.echo(f"Raw FragIt input: {raw_inp}")
 
     # Second pass: re-render with the correct central fragment ID and re-run.
-    # Only needed for mp2_level=True (NLAYER/MPLEVL layers require a central fragment).
+    # Only needed for 2layer (NLAYER/MPLEVL layers require a central fragment).
     if cfg.fragit.calc_mode == "2layer":
-        central_id = find_central_fragment_id(raw_inp, cfg.fragit.central_fragment_resname)
+        central_id = find_central_fragment_id(
+            raw_inp, prepared_pdb,
+            cfg.fragit.central_fragment_resname,
+            cfg.fragit.ligand_chain,
+        )
         click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
         ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini", system_type=cfg.system_type)
         raw_inp = run_fragit(prepared_pdb, ini_path, fragit_dir)
 
     # Step 3: patch GAMESS input
-    from fmo_prep.fragit.postprocess import patch_inp
-
     final_inp = output_dir / "fmo_run.inp"
     patch_inp(raw_inp, cfg.fragit, output_path=final_inp)
     click.echo(f"Final GAMESS input: {final_inp}")
+
+    # Step 4: build fragment→residue map
+    build_fragment_residue_map(final_inp, prepared_pdb)
+    click.echo(f"Fragment map: {output_dir / 'fragment_map.json'}")
+
+
+# ---------------------------------------------------------------------------
+# fragit
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option(
+    "--config", "-c",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to fragit-only config YAML.",
+)
+def fragit(config: Path) -> None:
+    """Run FragIt only on an already-prepared PDB."""
+    from fmo_prep.config import FragitOnlyConfig
+    from fmo_prep.fragit.runner import render_config, run_fragit, find_central_fragment_id
+    from fmo_prep.fragit.postprocess import patch_inp, build_fragment_residue_map
+
+    cfg = FragitOnlyConfig.from_yaml(config)
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+
+    click.echo(f"Input PDB  : {cfg.pdb}")
+    click.echo(f"Output dir : {cfg.output_dir}")
+
+    fragit_dir = cfg.output_dir / "fragit"
+    fragit_dir.mkdir(exist_ok=True)
+
+    # First pass: run FragIt with centralfragment=0
+    ini_path = render_config(cfg.fragit, central_fragment_id=0, output_path=fragit_dir / "fragit.ini")
+    raw_inp = run_fragit(cfg.pdb, ini_path, fragit_dir)
+    click.echo(f"Raw FragIt input: {raw_inp}")
+
+    # Second pass for 2layer: find central fragment by coord matching, re-run
+    if cfg.fragit.calc_mode == "2layer":
+        if not cfg.fragit.central_fragment_resname:
+            raise click.UsageError("central_fragment_resname is required for calc_mode='2layer'")
+        central_id = find_central_fragment_id(
+            raw_inp, cfg.pdb,
+            cfg.fragit.central_fragment_resname,
+            cfg.fragit.ligand_chain,
+        )
+        click.echo(f"Central fragment: {cfg.fragit.central_fragment_resname} → fragment {central_id}")
+        ini_path = render_config(cfg.fragit, central_fragment_id=central_id, output_path=fragit_dir / "fragit.ini")
+        raw_inp = run_fragit(cfg.pdb, ini_path, fragit_dir)
+
+    # Patch GAMESS input
+    final_inp = cfg.output_dir / "fmo_run.inp"
+    patch_inp(raw_inp, cfg.fragit, output_path=final_inp)
+    click.echo(f"Final GAMESS input: {final_inp}")
+
+    # Build fragment→residue map
+    build_fragment_residue_map(final_inp, cfg.pdb)
+    click.echo(f"Fragment map: {cfg.output_dir / 'fragment_map.json'}")
 
 
 # ---------------------------------------------------------------------------

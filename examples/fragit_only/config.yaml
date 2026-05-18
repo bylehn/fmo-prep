@@ -1,0 +1,14 @@
+pdb: ./prepared_complex.pdb
+output_dir: ./out
+
+fragit:
+  basis: "6-31G*"
+  calc_mode: 2layer
+  fmo_level: 2
+  charge_model: MMFF94
+  central_fragment_resname: LIG
+  ligand_chain: A
+  boundaries: 5.0
+  maxfragsize: 100
+  mwords: 125
+  ngroup: 1
