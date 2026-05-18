@@ -25,9 +25,6 @@ a-d-pyranose = [$(C1C(CO)OC(O)C(O)C1(O))][$(OC1C(O)C(O)CC(CO)O1)]
 dnabackbone = [$(CCOP)][$(CC1OCCC1)]
 
 [protectpatterns]
-{% if system_type != "protein_peptide" %}
-nterminal = [$([NH2]),$([NH3])]CC(=O)[$(NCC=O)]
-{% endif %}
 
 [mergepatterns]
 glycine =
@@ -56,4 +53,3 @@ basis = {{ basis }}
 [fmo]
 dohop = True
 efpwaters = 0
-fmolevel = {{ fmo_level }}

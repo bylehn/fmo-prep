@@ -21,8 +21,6 @@ def test_render_config_basic(tmp_path):
     assert "boundaries = 2.0" in text
     assert "basis = 6-31G*" in text
     assert "centralfragment = 42" in text
-    # protein_ligand (default): nterminal protect present, no peptide_methylated
-    assert "nterminal" in text
     assert "peptide_methylated" not in text
 
 
