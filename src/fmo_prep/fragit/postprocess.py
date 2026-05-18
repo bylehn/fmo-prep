@@ -411,7 +411,13 @@ def patch_inp(inp_path: Path, cfg: FragitConfig, output_path: Path | None = None
             text, flags=re.MULTILINE,
         )
 
-    # --- Step 6: auto-correct ICHARG if total charge ≠ 0 ---
+    # --- Step 6: strip layer-2 $DATA entries when NLAYER=1 ---
+    # bylehn/fragit-main writes duplicate "X-2" entries in $DATA even for single-layer
+    # runs; GAMESS rejects them with "Invalid layer in the basis library" when NLAYER=1.
+    if nlayer_val == "1":
+        text = re.sub(r"^[A-Z]+-2\s+\d.*\n", "", text, flags=re.MULTILINE)
+
+    # --- Step 7: auto-correct ICHARG if total charge ≠ 0 ---
     text = _fix_fragment_charges(text)
 
     output_path.write_text(text)
